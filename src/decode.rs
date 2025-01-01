@@ -136,40 +136,11 @@ mod tests {
 	    0xBB, 0x9E, 0x1E, 0x5F, 0xD7, 0xE3, 0xA4, 0x07, 0xE1
 	]);
 
-	if let Ok(head) = dec.decode_head() {
-	    assert_eq!(head.initial_byte, 0x0C);
-	    assert_eq!(head.following_bytes, []);
-	} else {
-	    assert!(false);
-	}
-
-	if let Ok(head) = dec.decode_head() {
-	    assert_eq!(head.initial_byte, 0xF8);
-	    assert_eq!(head.following_bytes, [0xDB]);
-	} else {
-	    assert!(false);
-	}
-
-	if let Ok(head) = dec.decode_head() {
-	    assert_eq!(head.initial_byte, 0x99);
-	    assert_eq!(head.following_bytes, [0x78, 0x14]);
-	} else {
-	    assert!(false);
-	}
-
-	if let Ok(head) = dec.decode_head() {
-	    assert_eq!(head.initial_byte, 0x3A);
-	    assert_eq!(head.following_bytes, [0x14, 0xE3, 0x17, 0x19]);
-	} else {
-	    assert!(false);
-	}
-	
-	if let Ok(head) = dec.decode_head() {
-	    assert_eq!(head.initial_byte, 0xBB);
-	    assert_eq!(head.following_bytes, [0x9E, 0x1E, 0x5F, 0xD7, 0xE3, 0xA4, 0x07, 0xE1]);
-	} else {
-	    assert!(false);
-	}
+	assert_eq!(dec.decode_head(), Ok(Head::new(0x0C, &[])));
+	assert_eq!(dec.decode_head(), Ok(Head::new(0xF8, &[0xDB])));
+	assert_eq!(dec.decode_head(), Ok(Head::new(0x99, &[0x78, 0x14])));
+	assert_eq!(dec.decode_head(), Ok(Head::new(0x3A, &[0x14, 0xE3, 0x17, 0x19])));
+	assert_eq!(dec.decode_head(), Ok(Head::new(0xBB, &[0x9E, 0x1E, 0x5F, 0xD7, 0xE3, 0xA4, 0x07, 0xE1])));
     }
 
     #[test]
@@ -188,11 +159,7 @@ mod tests {
     fn test_decode_bytes() {
 	let mut dec = Decoder::new(&[0x84, 0xD8, 0xFF, 0x70]);
 
-	if let Ok(bytes) = dec.decode_bytes(3) {
-	    assert_eq!(bytes, [0x84, 0xD8, 0xFF]);
-	} else {
-	    assert!(false);
-	}
+	assert_eq!(dec.decode_bytes(3), Ok::<&[u8], ()>(&[0x84, 0xD8, 0xFF]));
 
 	assert!(dec.decode_bytes(2).is_err());
     }
@@ -205,78 +172,26 @@ mod tests {
 	    0x39, 0xB9, 0x37
 	]);
 
-	if let Ok(Event::UnsignedInteger(val)) = dec.decode_event() {
-	    assert_eq!(val, 0x0B);
-	} else {
-	    assert!(false);
-	}
-
-	if let Ok(Event::UnsignedInteger(val)) = dec.decode_event() {
-	    assert_eq!(val, 0x8C);
-	} else {
-	    assert!(false);
-	}
-
-	if let Ok(Event::NegativeInteger(val)) = dec.decode_event() {
-	    assert_eq!(val, 0xB937);
-	} else {
-	    assert!(false);
-	}
-
-	assert!(if let Ok(Event::End) = dec.decode_event() {
-	    true
-	} else {
-	    false
-	});
+	assert_eq!(dec.decode_event(), Ok(Event::UnsignedInteger(0x0B)));
+	assert_eq!(dec.decode_event(), Ok(Event::UnsignedInteger(0x8C)));
+	assert_eq!(dec.decode_event(), Ok(Event::NegativeInteger(0xB937)));
+	assert_eq!(dec.decode_event(), Ok(Event::End));
     }
 
     #[test]
     fn test_decode_event_string() {
 	let mut dec = Decoder::new(&[
 	    0x43, 0x9D, 0x1B, 0x22,
-	    0x78, 0x01, 0x4E
+	    0x78, 0x01, 0x4E,
+	    0x5F,
+	    0x7F
 	]);
 
-	if let Ok(Event::ByteString(bytes)) = dec.decode_event() {
-	    assert_eq!(bytes, [0x9D, 0x1B, 0x22]);
-	} else {
-	    assert!(false);
-	}
-
-	if let Ok(Event::TextString(bytes)) = dec.decode_event() {
-	    assert_eq!(bytes, [0x4E]);
-	} else {
-	    assert!(false);
-	}
-
-	assert!(if let Ok(Event::End) = dec.decode_event() {
-	    true
-	} else {
-	    false
-	});
-    }
-
-    #[test]
-    fn test_decode_event_indefinite_string() {
-	let mut dec = Decoder::new(&[0x5F, 0x7F]);
-
-	assert!(if let Ok(Event::IndefiniteByteString) = dec.decode_event() {
-	    true
-	} else {
-	    false
-	});
-
-	assert!(if let Ok(Event::IndefiniteTextString) = dec.decode_event() {
-	    true
-	} else {
-	    false
-	});
-	
-	assert!(if let Ok(Event::End) = dec.decode_event() {
-	    true
-	} else {
-	    false
-	});
+	assert_eq!(dec.decode_event(), Ok(Event::ByteString(&[0x9D, 0x1B, 0x22])));
+	assert_eq!(dec.decode_event(), Ok(Event::TextString(&[0x4E])));
+	assert_eq!(dec.decode_event(), Ok(Event::IndefiniteByteString));
+	assert_eq!(dec.decode_event(), Ok(Event::IndefiniteTextString));
+	assert_eq!(dec.decode_event(), Ok(Event::End));
     }
 
     #[test]
@@ -285,75 +200,28 @@ mod tests {
 	    0x83, 0x9F, 0xAC, 0xBF
 	]);
 
-	if let Ok(Event::Array(len)) = dec.decode_event() {
-	    assert_eq!(len, 0x03);
-	} else {
-	    assert!(false);
-	}
-
-	assert!(if let Ok(Event::IndefiniteArray) = dec.decode_event() {
-	    true
-	} else {
-	    false
-	});
-
-	if let Ok(Event::Map(len)) = dec.decode_event() {
-	    assert_eq!(len, 0x0C);
-	} else {
-	    assert!(false);
-	}
-
-	assert!(if let Ok(Event::IndefiniteMap) = dec.decode_event() {
-	    true
-	} else {
-	    false
-	});
-
-	assert!(if let Ok(Event::End) = dec.decode_event() {
-	    true
-	} else {
-	    false
-	});
+	assert_eq!(dec.decode_event(), Ok(Event::Array(0x03)));
+	assert_eq!(dec.decode_event(), Ok(Event::IndefiniteArray));
+	assert_eq!(dec.decode_event(), Ok(Event::Map(0x0C)));
+	assert_eq!(dec.decode_event(), Ok(Event::IndefiniteMap));
+	assert_eq!(dec.decode_event(), Ok(Event::End));
     }
 
     #[test]
     fn test_decode_event_tag() {
 	let mut dec = Decoder::new(&[0xD9, 0x5E, 0xD2]);
 
-	if let Ok(Event::Tag(val)) = dec.decode_event() {
-	    assert_eq!(val, 0x5ED2);
-	} else {
-	    assert!(false);
-	}
-
-	assert!(if let Ok(Event::End) = dec.decode_event() {
-	    true
-	} else {
-	    false
-	});
+	assert_eq!(dec.decode_event(), Ok(Event::Tag(0x5ED2)));
+	assert_eq!(dec.decode_event(), Ok(Event::End));
     }
 
     #[test]
     fn test_decode_event_simple() {
 	let mut dec = Decoder::new(&[0xE7, 0xF8, 0x5E]);
 
-	if let Ok(Event::Simple(val)) = dec.decode_event() {
-	    assert_eq!(val, 0x07);
-	} else {
-	    assert!(false);
-	}
-
-	if let Ok(Event::Simple(val)) = dec.decode_event() {
-	    assert_eq!(val, 0x5E);
-	} else {
-	    assert!(false);
-	}
-	
-	assert!(if let Ok(Event::End) = dec.decode_event() {
-	    true
-	} else {
-	    false
-	});
+	assert_eq!(dec.decode_event(), Ok(Event::Simple(0x07)));
+	assert_eq!(dec.decode_event(), Ok(Event::Simple(0x5E)));
+	assert_eq!(dec.decode_event(), Ok(Event::End));
     }
 
     #[test]
@@ -364,46 +232,18 @@ mod tests {
 	    0xFB, 0x7F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 	]);
 
-	if let Ok(Event::Float(bytes)) = dec.decode_event() {
-	    assert_eq!(bytes, [0x7C, 0x00]);
-	} else {
-	    assert!(false);
-	}
-
-	if let Ok(Event::Float(bytes)) = dec.decode_event() {
-	    assert_eq!(bytes, [0x7F, 0x80, 0x00, 0x00]);
-	} else {
-	    assert!(false);
-	}
-
-	if let Ok(Event::Float(bytes)) = dec.decode_event() {
-	    assert_eq!(bytes, [0x7F, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
-	} else {
-	    assert!(false);
-	}
-
-	assert!(if let Ok(Event::End) = dec.decode_event() {
-	    true
-	} else {
-	    false
-	});
+	assert_eq!(dec.decode_event(), Ok(Event::Float(&[0x7C, 0x00])));
+	assert_eq!(dec.decode_event(), Ok(Event::Float(&[0x7F, 0x80, 0x00, 0x00])));
+	assert_eq!(dec.decode_event(), Ok(Event::Float(&[0x7F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])));
+	assert_eq!(dec.decode_event(), Ok(Event::End));
     }
 
     #[test]
     fn test_decode_event_break() {
 	let mut dec = Decoder::new(&[0xFF]);
 
-	assert!(if let Ok(Event::Break) = dec.decode_event() {
-	    true
-	} else {
-	    false
-	});
-	
-	assert!(if let Ok(Event::End) = dec.decode_event() {
-	    true
-	} else {
-	    false
-	});
+	assert_eq!(dec.decode_event(), Ok(Event::Break));
+	assert_eq!(dec.decode_event(), Ok(Event::End));
     }
     
 }
