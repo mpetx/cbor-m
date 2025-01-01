@@ -24,6 +24,28 @@ impl<'a> Head<'a> {
 	self.initial_byte & Self::ADDITIONAL_INFORMATION_MASK
     }
 
+    pub fn argument(&self) -> Option<u64> {
+	if !self.is_sound() {
+	    return None;
+	}
+
+	let ai = self.additional_information();
+
+	match ai {
+	    0..24 => Some(ai as u64),
+	    31 => None,
+	    _ => {
+		let mut arg = 0_u64;
+
+		for &b in self.following_bytes {
+		    arg = (arg << 8) | (b as u64);
+		}
+
+		Some(arg)
+	    }
+	}
+    }
+    
     pub fn is_sound(&self) -> bool {
 	match self.additional_information() {
 	    0..24 => self.following_bytes.len() == 0,
@@ -41,6 +63,29 @@ impl<'a> Head<'a> {
 	}
     }
     
+}
+
+pub struct Item<'a> {
+    pub head: Head<'a>,
+    pub content: &'a [u8]
+}
+
+pub enum Event<'a> {
+    UnsignedInteger(u64),
+    NegativeInteger(u64),
+    ByteString(&'a [u8]),
+    TextString(&'a [u8]),
+    Array(u64),
+    Map(u64),
+    IndefiniteByteString,
+    IndefiniteTextString,
+    IndefiniteArray,
+    IndefiniteMap,
+    Tag(u64),
+    Simple(u8),
+    Float(&'a [u8]),
+    Break,
+    End
 }
 
 #[cfg(test)]
@@ -63,5 +108,25 @@ mod tests {
 	assert_eq!(head.following_bytes, [0xFB]);
 	assert!(head.is_sound());
     }
-    
+
+    #[test]
+    fn test_head_argument() {
+	let head = Head::new(0x31, &[]);
+	assert_eq!(head.argument(), Some(0x11));
+
+	let head = Head::new(0x58, &[0xAB]);
+	assert_eq!(head.argument(), Some(0xAB));
+
+	let head = Head::new(0x79, &[0xA5, 0xE6]);
+	assert_eq!(head.argument(), Some(0xA5E6));
+
+	let head = Head::new(0x9A, &[0x98, 0x36, 0x96, 0x0D]);
+	assert_eq!(head.argument(), Some(0x9836_960D));
+
+	let head = Head::new(0xBB, &[0x53, 0x84, 0xC4, 0x60, 0xFD, 0xB0, 0x04, 0xC4]);
+	assert_eq!(head.argument(), Some(0x5384_C460_FDB0_04C4));
+
+	let head = Head::new(0xFF, &[]);
+	assert_eq!(head.argument(), None);
+    }
 }
