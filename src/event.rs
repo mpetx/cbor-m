@@ -65,11 +65,6 @@ impl<'a> Head<'a> {
     
 }
 
-pub struct Item<'a> {
-    pub head: Head<'a>,
-    pub content: &'a [u8]
-}
-
 pub enum Event<'a> {
     UnsignedInteger(u64),
     NegativeInteger(u64),
