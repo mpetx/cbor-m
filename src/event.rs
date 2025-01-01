@@ -1,4 +1,5 @@
 
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Head<'a> {
     pub initial_byte: u8,
     pub following_bytes: &'a [u8]
@@ -65,6 +66,9 @@ impl<'a> Head<'a> {
     
 }
 
+impl<'a> Eq for Head<'a> {}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Event<'a> {
     UnsignedInteger(u64),
     NegativeInteger(u64),
@@ -82,6 +86,8 @@ pub enum Event<'a> {
     Break,
     End
 }
+
+impl<'a> Eq for Event<'a> {}
 
 #[cfg(test)]
 mod tests {
