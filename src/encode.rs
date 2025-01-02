@@ -1,5 +1,6 @@
 
-use std::io::{Error, ErrorKind, Result, Write};
+use std::io::Write;
+use std::result::Result;
 
 use crate::event::*;
 
@@ -7,8 +8,12 @@ pub struct Encoder<W: Write> {
     writer: W
 }
 
-fn write_u8<W: Write>(writer: &mut W, byte: u8) -> Result<()> {
-    writer.write_all(&[byte])
+fn write_u8<W: Write>(writer: &mut W, byte: u8) -> Result<(), ()> {
+    if let Ok(_) = writer.write_all(&[byte]) {
+	Ok(())
+    } else {
+	Err(())
+    }
 }
 
 impl<W: Write> Encoder<W> {
@@ -17,22 +22,30 @@ impl<W: Write> Encoder<W> {
 	Encoder { writer }
     }
     
-    fn encode_head_with_argument(&mut self, major_type: u8, argument: u64) -> Result<()> {
+    fn encode_bytes(&mut self, bytes: &[u8]) -> Result<(), ()> {
+	if let Ok(_) = self.writer.write_all(bytes) {
+	    Ok(())
+	} else {
+	    Err(())
+	}
+    }
+    
+    fn encode_head_with_argument(&mut self, major_type: u8, argument: u64) -> Result<(), ()> {
 	if argument < 24 {
 	    write_u8(&mut self.writer, major_type | (argument as u8))
 	} else if argument <= 0xFF {
-	    self.writer.write_all(&[
+	    self.encode_bytes(&[
 		major_type | 0x18,
 		argument as u8
 	    ])
 	} else if argument <= 0xFFFF {
-	    self.writer.write_all(&[
+	    self.encode_bytes(&[
 		major_type | 0x19,
 		(argument >> 8) as u8,
 		argument as u8
 	    ])
 	} else if argument <= 0xFFFF_FFFF {
-	    self.writer.write_all(&[
+	    self.encode_bytes(&[
 		major_type | 0x1A,
 		(argument >> 24) as u8,
 		(argument >> 16) as u8,
@@ -40,7 +53,7 @@ impl<W: Write> Encoder<W> {
 		argument as u8
 	    ])
 	} else {
-	    self.writer.write_all(&[
+	    self.encode_bytes(&[
 		major_type | 0x1B,
 		(argument >> 56) as u8,
 		(argument >> 48) as u8,
@@ -53,12 +66,8 @@ impl<W: Write> Encoder<W> {
 	    ])
 	}
     }
-    
-    fn encode_bytes(&mut self, bytes: &[u8]) -> Result<()> {
-	self.writer.write_all(bytes)
-    }
 
-    pub fn encode_event<'a>(&mut self, event: &Event<'a>) -> Result<()> {
+    pub fn encode_event<'a>(&mut self, event: &Event<'a>) -> Result<(), ()> {
 	use Event::*;
 	match event {
 	    UnsignedInteger(val) => self.encode_head_with_argument(0x00, *val),
@@ -67,13 +76,13 @@ impl<W: Write> Encoder<W> {
 		self.encode_head_with_argument(0x40, len)?;
 		self.encode_bytes(content)
 	    } else {
-		Err(Error::from(ErrorKind::Other))
+		Err(())
 	    },
 	    TextString(content) => if let Ok(len) = u64::try_from(content.len()) {
 		self.encode_head_with_argument(0x60, len)?;
 		self.encode_bytes(content)
 	    } else {
-		Err(Error::from(ErrorKind::Other))
+		Err(())
 	    },
 	    Array(len) => self.encode_head_with_argument(0x80, *len),
 	    Map(len) => self.encode_head_with_argument(0xA0, *len),
@@ -83,7 +92,7 @@ impl<W: Write> Encoder<W> {
 	    IndefiniteMap => write_u8(&mut self.writer, 0xBF),
 	    Tag(val) => self.encode_head_with_argument(0xC0, *val),
 	    Simple(val) => if 24 <= *val && *val <= 31 {
-		Err(Error::from(ErrorKind::Other))
+		Err(())
 	    } else {
 		self.encode_head_with_argument(0xE0, *val as u64)
 	    },
@@ -94,7 +103,7 @@ impl<W: Write> Encoder<W> {
 		    4 => 0x1A,
 		    8 => 0x1B,
 		    _ => {
-			return Err(Error::from(ErrorKind::Other));
+			return Err(())
 		    }
 		};
 		write_u8(&mut self.writer, 0xE0 | ai)?;
