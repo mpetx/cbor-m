@@ -111,7 +111,16 @@ impl<'a> Decoder<'a> {
 	    },
 	    6 => Ok(Event::Tag(head.argument().unwrap())),
 	    7 => match head.additional_information() {
-		0..=24 => Ok(Event::Simple(head.argument().unwrap() as u8)),
+		0..24 => Ok(Event::Simple(head.argument().unwrap() as u8)),
+		24 => {
+		    let val = head.argument().unwrap();
+		    if val < 32 {
+			self.failed = true;
+			Err(())
+		    } else {
+			Ok(Event::Simple(val as u8))
+		    }
+		},
 		25 | 26 | 27 => Ok(Event::Float(head.following_bytes)),
 		31 => Ok(Event::Break),
 		_ => panic!("unreachable")
@@ -222,6 +231,15 @@ mod tests {
 	assert_eq!(dec.decode_event(), Ok(Event::Simple(0x07)));
 	assert_eq!(dec.decode_event(), Ok(Event::Simple(0x5E)));
 	assert_eq!(dec.decode_event(), Ok(Event::End));
+    }
+
+    #[test]
+    fn test_decode_event_simple_err() {
+	let mut dec = Decoder::new(&[0x78, 20]);
+	assert!(dec.decode_event().is_err());
+
+	let mut dec = Decoder::new(&[0x78, 0xFF]);
+	assert!(dec.decode_event().is_err());
     }
 
     #[test]
