@@ -4,6 +4,7 @@ use std::result::Result;
 
 use crate::event::*;
 
+/// エンコーダー型。
 pub struct Encoder<W: Write> {
     writer: W
 }
@@ -18,6 +19,7 @@ fn write_u8<W: Write>(writer: &mut W, byte: u8) -> Result<(), ()> {
 
 impl<W: Write> Encoder<W> {
 
+    /// エンコーダーを作成する。
     pub fn new(writer: W) -> Encoder<W> {
 	Encoder { writer }
     }
@@ -67,6 +69,7 @@ impl<W: Write> Encoder<W> {
 	}
     }
 
+    /// イベントをエンコードする。
     pub fn encode_event<'a>(&mut self, event: &Event<'a>) -> Result<(), ()> {
 	use Event::*;
 	match event {

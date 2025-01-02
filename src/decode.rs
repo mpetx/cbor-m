@@ -70,6 +70,7 @@ impl<'a> Head<'a> {
 
 impl<'a> Eq for Head<'a> {}
 
+/// デコーダー型。
 pub struct Decoder<'a> {
     data: &'a [u8],
     failed: bool
@@ -77,6 +78,7 @@ pub struct Decoder<'a> {
 
 impl<'a> Decoder<'a> {
 
+    /// デコーダーを作成する。パラメーターはデコード対象のバイト列。
     pub fn new(data: &'a [u8]) -> Decoder<'a> {
 	Decoder {
 	    data,
@@ -128,6 +130,7 @@ impl<'a> Decoder<'a> {
 	Ok(bytes)
     }
 
+    /// 次のイベントを取得する。
     pub fn decode_event(&mut self) -> Result<Event, ()> {
 	if self.failed {
 	    return Err(());
