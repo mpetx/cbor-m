@@ -193,7 +193,9 @@ impl<'a> Decoder<'a> {
 			Ok(Event::Simple(val as u8))
 		    }
 		},
-		25 | 26 | 27 => Ok(Event::Float(head.following_bytes)),
+		25 => Ok(Event::HalfFloat(head.following_bytes.try_into().unwrap())),
+		26 => Ok(Event::SingleFloat(head.following_bytes.try_into().unwrap())),
+		27 => Ok(Event::DoubleFloat(head.following_bytes.try_into().unwrap())),
 		31 => Ok(Event::Break),
 		_ => panic!("unreachable")
 	    },
@@ -360,9 +362,9 @@ mod tests {
 	    0xFB, 0x7F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 	]);
 
-	assert_eq!(dec.decode_event(), Ok(Event::Float(&[0x7C, 0x00])));
-	assert_eq!(dec.decode_event(), Ok(Event::Float(&[0x7F, 0x80, 0x00, 0x00])));
-	assert_eq!(dec.decode_event(), Ok(Event::Float(&[0x7F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])));
+	assert_eq!(dec.decode_event(), Ok(Event::HalfFloat(&[0x7C, 0x00])));
+	assert_eq!(dec.decode_event(), Ok(Event::SingleFloat(&[0x7F, 0x80, 0x00, 0x00])));
+	assert_eq!(dec.decode_event(), Ok(Event::DoubleFloat(&[0x7F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])));
 	assert_eq!(dec.decode_event(), Ok(Event::End));
     }
 

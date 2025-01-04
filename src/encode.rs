@@ -99,19 +99,18 @@ impl<W: Write> Encoder<W> {
 	    } else {
 		self.encode_head_with_argument(0xE0, *val as u64)
 	    },
-	    Float(val) => {
-		let ai = match val.len() {
-		    1 => 0x18,
-		    2 => 0x19,
-		    4 => 0x1A,
-		    8 => 0x1B,
-		    _ => {
-			return Err(())
-		    }
-		};
-		write_u8(&mut self.writer, 0xE0 | ai)?;
-		self.encode_bytes(val)
+	    HalfFloat(val) => {
+		write_u8(&mut self.writer, 0xF9)?;
+		self.encode_bytes(*val)
 	    },
+	    SingleFloat(val) => {
+		write_u8(&mut self.writer, 0xFA)?;
+		self.encode_bytes(*val)
+	    },
+	    DoubleFloat(val) => {
+		write_u8(&mut self.writer, 0xFB)?;
+		self.encode_bytes(*val)
+	    }
 	    Break => write_u8(&mut self.writer, 0xFF),
 	    End => Ok(())
 	}
@@ -241,9 +240,9 @@ mod tests {
 	let mut buf = Vec::<u8>::new();
 	let mut enc = Encoder::new(&mut buf);
 
-	let _ = enc.encode_event(&Event::Float(&[0xFC, 0x00]));
-	let _ = enc.encode_event(&Event::Float(&[0xFF, 0x80, 0x00, 0x00]));
-	let _ = enc.encode_event(&Event::Float(&[0xFF, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]));
+	let _ = enc.encode_event(&Event::HalfFloat(&[0xFC, 0x00]));
+	let _ = enc.encode_event(&Event::SingleFloat(&[0xFF, 0x80, 0x00, 0x00]));
+	let _ = enc.encode_event(&Event::DoubleFloat(&[0xFF, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]));
 
 	assert_eq!(buf, [
 	    0xF9, 0xFC, 0x00,
