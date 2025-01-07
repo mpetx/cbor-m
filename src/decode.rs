@@ -72,135 +72,121 @@ impl<'a> Eq for Head<'a> {}
 
 /// デコーダー型。
 pub struct Decoder<'a> {
-    data: &'a [u8],
-    failed: bool
+    data: &'a [u8]
+}
+
+fn decode_head<'a>(data: &'a [u8]) -> Result<(Head<'a>, &'a [u8]), ()> {
+    if data.is_empty() {
+	panic!("INTERNAL ERROR: decode_head on an empty byte string.");
+    }
+
+    let ib = data[0];
+    let rest = &data[1..];
+
+    let ai = ib & Head::ADDITIONAL_INFORMATION_MASK;
+
+    if ai == 28 || ai == 29 || ai == 30 {
+	return Err(());
+    }
+
+    let bytes_len = match ai {
+	0..24 | 31 => 0,
+	24 => 1,
+	25 => 2,
+	26 => 4,
+	27 => 8,
+	_ => panic!("unreachable")
+    };
+
+    if rest.len() >= bytes_len {
+	let bytes = &rest[0..bytes_len];
+	let rest = &rest[bytes_len..];
+	let head = Head::new(ib, bytes);
+	Ok((head, rest))
+    } else {
+	Err(())
+    }
+}
+
+fn decode_bytes<'a>(data: &'a [u8], count: usize) -> Result<(&'a [u8], &'a [u8]), ()> {
+    if data.len() >= count {
+	Ok((&data[0..count], &data[count..]))
+    } else {
+	Err(())
+    }
+}
+
+fn decode_event<'a>(data: &'a [u8]) -> Result<(Event<'a>, &'a [u8]), ()> {
+    if data.is_empty() {
+	return Ok((Event::End, data));
+    }
+
+    let (head, rest) = decode_head(data)?;
+
+    match head.major_type() >> 5 {
+	0 => Ok((Event::UnsignedInteger(head.argument().unwrap()), rest)),
+	1 => Ok((Event::NegativeInteger(head.argument().unwrap()), rest)),
+	2 => if head.additional_information() == 31 {
+	    Ok((Event::IndefiniteByteString, rest))
+	} else if let Ok(len) = usize::try_from(head.argument().unwrap()) {
+	    let (content, rest) = decode_bytes(rest, len)?;
+	    Ok((Event::ByteString(content), rest))
+	} else {
+	    Err(())
+	},
+	3 => if head.additional_information() == 31 {
+	    Ok((Event::IndefiniteTextString, rest))
+	} else if let Ok(len) = usize::try_from(head.argument().unwrap()) {
+	    let (content, rest) = decode_bytes(rest, len)?;
+	    Ok((Event::TextString(content), rest))
+	} else {
+	    Err(())
+	},
+	4 => if head.additional_information() == 31 {
+	    Ok((Event::IndefiniteArray, rest))
+	} else {
+	    Ok((Event::Array(head.argument().unwrap()), rest))
+	},
+	5 => if head.additional_information() == 31 {
+	    Ok((Event::IndefiniteMap, rest))
+	} else {
+	    Ok((Event::Map(head.argument().unwrap()), rest))
+	},
+	6 => Ok((Event::Tag(head.argument().unwrap()), rest)),
+	7 => match head.additional_information() {
+	    0..24 => Ok((Event::Simple(head.additional_information()), rest)),
+	    24 => {
+		let val = head.argument().unwrap();
+		if val < 32 {
+		    Err(())
+		} else {
+		    Ok((Event::Simple(val as u8), rest))
+		}
+	    },
+	    25 => Ok((Event::HalfFloat(head.following_bytes.try_into().unwrap()), rest)),
+	    26 => Ok((Event::SingleFloat(head.following_bytes.try_into().unwrap()), rest)),
+	    27 => Ok((Event::DoubleFloat(head.following_bytes.try_into().unwrap()), rest)),
+	    31 => Ok((Event::Break, rest)),
+	    _ => panic!("unreachable")
+	},
+	_ => panic!("unreachable")
+    }
 }
 
 impl<'a> Decoder<'a> {
 
     /// デコーダーを作成する。パラメーターはデコード対象のバイト列。
     pub fn new(data: &'a [u8]) -> Decoder<'a> {
-	Decoder {
-	    data,
-	    failed: false
-	}
-    }
-
-    fn decode_head(&mut self) -> Result<Head<'a>, ()> {
-	if self.failed || self.data.is_empty() {
-	    self.failed = true;
-	    return Err(());
-	}
-
-	let initial_byte = self.data[0];
-	self.data = &self.data[1..];
-
-	let following_bytes_len = match initial_byte & Head::ADDITIONAL_INFORMATION_MASK {
-	    0..24 | 31 => 0,
-	    24 => 1,
-	    25 => 2,
-	    26 => 4,
-	    27 => 8,
-	    28 | 29 | 30 => {
-		self.failed = true;
-		return Err(());
-	    },
-	    _ => panic!("unreachable")
-	};
-
-	if self.data.len() >= following_bytes_len {
-	    let following_bytes = &self.data[0..following_bytes_len];
-	    self.data = &self.data[following_bytes_len..];
-	    Ok(Head::new(initial_byte, following_bytes))
-	} else {
-	    self.failed = true;
-	    Err(())
-	}
-    }
-
-    fn decode_bytes(&mut self, count: usize) -> Result<&'a [u8], ()> {
-	if self.failed || self.data.len() < count {
-	    self.failed = true;
-	    return Err(());
-	}
-
-	let bytes = &self.data[0..count];
-	self.data = &self.data[count..];
-
-	Ok(bytes)
+	Decoder { data }
     }
 
     /// 次のイベントを取得する。
     pub fn decode_event(&mut self) -> Result<Event, ()> {
-	if self.failed {
-	    return Err(());
-	}
-	
-	if self.data.is_empty() {
-	    return Ok(Event::End);
-	}
+	let (event, rest) = decode_event(self.data)?;
 
-	let head = self.decode_head()?;
+	self.data = rest;
 
-	match head.major_type() >> 5 {
-	    0 => Ok(Event::UnsignedInteger(head.argument().unwrap())),
-	    1 => Ok(Event::NegativeInteger(head.argument().unwrap())),
-	    2 => if head.additional_information() == 31 {
-		Ok(Event::IndefiniteByteString)
-	    } else {
-		let len = usize::try_from(head.argument().unwrap());
-
-		if len.is_err() {
-		    self.failed = true;
-		    return Err(());
-		}
-		
-		let content = self.decode_bytes(len.unwrap())?;
-		Ok(Event::ByteString(content))
-	    },
-	    3 => if head.additional_information() == 31 {
-		Ok(Event::IndefiniteTextString)
-	    } else {
-		let len = usize::try_from(head.argument().unwrap());
-
-		if len.is_err() {
-		    self.failed = true;
-		    return Err(());
-		}
-		
-		let content = self.decode_bytes(len.unwrap())?;
-		Ok(Event::TextString(content))
-	    },
-	    4 => if head.additional_information() == 31 {
-		Ok(Event::IndefiniteArray)
-	    } else {
-		Ok(Event::Array(head.argument().unwrap()))
-	    },
-	    5 => if head.additional_information() == 31 {
-		Ok(Event::IndefiniteMap)
-	    } else {
-		Ok(Event::Map(head.argument().unwrap()))
-	    },
-	    6 => Ok(Event::Tag(head.argument().unwrap())),
-	    7 => match head.additional_information() {
-		0..24 => Ok(Event::Simple(head.argument().unwrap() as u8)),
-		24 => {
-		    let val = head.argument().unwrap();
-		    if val < 32 {
-			self.failed = true;
-			Err(())
-		    } else {
-			Ok(Event::Simple(val as u8))
-		    }
-		},
-		25 => Ok(Event::HalfFloat(head.following_bytes.try_into().unwrap())),
-		26 => Ok(Event::SingleFloat(head.following_bytes.try_into().unwrap())),
-		27 => Ok(Event::DoubleFloat(head.following_bytes.try_into().unwrap())),
-		31 => Ok(Event::Break),
-		_ => panic!("unreachable")
-	    },
-	    _ => panic!("unreachable")
-	}
+	Ok(event)
     }
     
 }
@@ -249,40 +235,39 @@ mod tests {
 
     #[test]
     fn test_decode_head() {
-	let mut dec = Decoder::new(&[
-	    0x0C,
-	    0xF8, 0xDB,
-	    0x99, 0x78, 0x14,
-	    0x3A, 0x14, 0xE3, 0x17, 0x19,
-	    0xBB, 0x9E, 0x1E, 0x5F, 0xD7, 0xE3, 0xA4, 0x07, 0xE1
-	]);
+	let bytes = &[0x0C, 0x6B];
+	assert_eq!(decode_head(bytes), Ok((Head::new(0x0C, &bytes[1..1]), &bytes[1..])));
 
-	assert_eq!(dec.decode_head(), Ok(Head::new(0x0C, &[])));
-	assert_eq!(dec.decode_head(), Ok(Head::new(0xF8, &[0xDB])));
-	assert_eq!(dec.decode_head(), Ok(Head::new(0x99, &[0x78, 0x14])));
-	assert_eq!(dec.decode_head(), Ok(Head::new(0x3A, &[0x14, 0xE3, 0x17, 0x19])));
-	assert_eq!(dec.decode_head(), Ok(Head::new(0xBB, &[0x9E, 0x1E, 0x5F, 0xD7, 0xE3, 0xA4, 0x07, 0xE1])));
+	let bytes = &[0xF8, 0xDB, 0x02, 0x35];
+	assert_eq!(decode_head(bytes), Ok((Head::new(0xF8, &bytes[1..2]), &bytes[2..])));
+
+	let bytes = &[0x99, 0x78, 0x14, 0xF4, 0xC6, 0xBE];
+	assert_eq!(decode_head(bytes), Ok((Head::new(0x99, &bytes[1..3]), &bytes[3..])));
+
+	let bytes = &[0x3A, 0x14, 0xE3, 0x17, 0x19, 0x49];
+	assert_eq!(decode_head(bytes), Ok((Head::new(0x3A, &bytes[1..5]), &bytes[5..])));
+
+	let bytes = &[0xBB, 0x9E, 0x1E, 0x5F, 0xD7, 0xE3, 0xA4, 0x07, 0xE1];
+	assert_eq!(decode_head(bytes), Ok((Head::new(0xBB, &bytes[1..9]), &bytes[9..])));
+		      
     }
 
     #[test]
     fn test_decode_head_err() {
-	let mut dec = Decoder::new(&[]);
-	assert!(dec.decode_head().is_err());
+	let bytes = &[0x1C];
+	assert_eq!(decode_head(bytes), Err(()));
 
-	let mut dec = Decoder::new(&[0x1C]);
-	assert!(dec.decode_head().is_err());
-
-	let mut dec = Decoder::new(&[0x5A, 0x00, 0x00, 0x00]);
-	assert!(dec.decode_head().is_err());
+	let bytes = &[0x5A, 0x00, 0x00, 0x00];
+	assert_eq!(decode_head(bytes), Err(()));
     }
 
     #[test]
     fn test_decode_bytes() {
-	let mut dec = Decoder::new(&[0x84, 0xD8, 0xFF, 0x70]);
+	let bytes = &[0x84, 0xD8, 0xFF, 0x70];
+	assert_eq!(decode_bytes(bytes, 3), Ok((&bytes[0..3], &bytes[3..])));
 
-	assert_eq!(dec.decode_bytes(3), Ok::<&[u8], ()>(&[0x84, 0xD8, 0xFF]));
-
-	assert!(dec.decode_bytes(2).is_err());
+	let bytes = &[0x34, 0x1B];
+	assert_eq!(decode_bytes(bytes, 3), Err(()));
     }
 
     #[test]
