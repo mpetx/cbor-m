@@ -1,19 +1,34 @@
 
+use std::result;
+use std::io;
 use std::io::Write;
-use std::result::Result;
 
 use crate::event::*;
+
+/// エンコード時に発生するエラー。
+pub enum Error {
+    /// 入出力エラー。
+    IoError(io::Error),
+
+    /// バイト列や文字列の長さが 2^64 - 1 よりも大きい場合。
+    TooLongString,
+
+    /// 予約された単純値を出力しようとした場合。
+    ReservedSimpleValue
+}
+
+pub type Result<T> = result::Result<T, Error>;
 
 /// エンコーダー型。
 pub struct Encoder<W: Write> {
     writer: W
 }
 
-fn write_u8<W: Write>(writer: &mut W, byte: u8) -> Result<(), ()> {
-    if let Ok(_) = writer.write_all(&[byte]) {
-	Ok(())
+fn write_u8<W: Write>(writer: &mut W, byte: u8) -> Result<()> {
+    if let Err(err) = writer.write_all(&[byte]) {
+	Err(Error::IoError(err))
     } else {
-	Err(())
+	Ok(())
     }
 }
 
@@ -24,15 +39,15 @@ impl<W: Write> Encoder<W> {
 	Encoder { writer }
     }
     
-    fn encode_bytes(&mut self, bytes: &[u8]) -> Result<(), ()> {
-	if let Ok(_) = self.writer.write_all(bytes) {
-	    Ok(())
+    fn encode_bytes(&mut self, bytes: &[u8]) -> Result<()> {
+	if let Err(err) = self.writer.write_all(bytes) {
+	    Err(Error::IoError(err))
 	} else {
-	    Err(())
+	    Ok(())
 	}
     }
     
-    fn encode_head_with_argument(&mut self, major_type: u8, argument: u64) -> Result<(), ()> {
+    fn encode_head_with_argument(&mut self, major_type: u8, argument: u64) -> Result<()> {
 	if argument < 24 {
 	    write_u8(&mut self.writer, major_type | (argument as u8))
 	} else if argument <= 0xFF {
@@ -70,7 +85,7 @@ impl<W: Write> Encoder<W> {
     }
 
     /// イベントをエンコードする。
-    pub fn encode_event<'a>(&mut self, event: &Event<'a>) -> Result<(), ()> {
+    pub fn encode_event<'a>(&mut self, event: &Event<'a>) -> Result<()> {
 	use Event::*;
 	match event {
 	    UnsignedInteger(val) => self.encode_head_with_argument(0x00, *val),
@@ -79,13 +94,13 @@ impl<W: Write> Encoder<W> {
 		self.encode_head_with_argument(0x40, len)?;
 		self.encode_bytes(content)
 	    } else {
-		Err(())
+		Err(Error::TooLongString)
 	    },
 	    TextString(content) => if let Ok(len) = u64::try_from(content.len()) {
 		self.encode_head_with_argument(0x60, len)?;
 		self.encode_bytes(content)
 	    } else {
-		Err(())
+		Err(Error::TooLongString)
 	    },
 	    Array(len) => self.encode_head_with_argument(0x80, *len),
 	    Map(len) => self.encode_head_with_argument(0xA0, *len),
@@ -95,7 +110,7 @@ impl<W: Write> Encoder<W> {
 	    IndefiniteMap => write_u8(&mut self.writer, 0xBF),
 	    Tag(val) => self.encode_head_with_argument(0xC0, *val),
 	    Simple(val) => if 24 <= *val && *val <= 31 {
-		Err(())
+		Err(Error::ReservedSimpleValue)
 	    } else {
 		self.encode_head_with_argument(0xE0, *val as u64)
 	    },
@@ -235,6 +250,18 @@ mod tests {
 	]);
     }
 
+    #[test]
+    fn test_encode_event_simple_err() {
+	let mut buf = Vec::<u8>::new();
+	let mut enc = Encoder::new(&mut buf);
+
+	if let Err(Error::ReservedSimpleValue) = enc.encode_event(&Event::Simple(24)) {
+	    assert!(true);
+	} else {
+	    assert!(false);
+	}
+    }
+    
     #[test]
     fn test_encode_event_float() {
 	let mut buf = Vec::<u8>::new();
