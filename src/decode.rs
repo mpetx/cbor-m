@@ -1,4 +1,5 @@
 
+use std::result;
 use crate::event::*;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -70,12 +71,29 @@ impl<'a> Head<'a> {
 
 impl<'a> Eq for Head<'a> {}
 
+/// デコード時に発生するエラー。
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Error {
+    /// データ項目の初めのバイトの下位5ビットが予約された値である場合。
+    Reserved5BitValue,
+
+    /// 単純値のエンコーディングが不正である場合。
+    InvalidSimpleValueEncoding,
+
+    /// 予期しないデータの終端に遭遇した場合。
+    UnexpectedEnd
+}
+
+impl Eq for Error {}
+
+pub type Result<T> = result::Result<T, Error>;
+
 /// デコーダー型。
 pub struct Decoder<'a> {
     data: &'a [u8]
 }
 
-fn decode_head<'a>(data: &'a [u8]) -> Result<(Head<'a>, &'a [u8]), ()> {
+fn decode_head<'a>(data: &'a [u8]) -> Result<(Head<'a>, &'a [u8])> {
     if data.is_empty() {
 	panic!("INTERNAL ERROR: decode_head on an empty byte string.");
     }
@@ -86,7 +104,7 @@ fn decode_head<'a>(data: &'a [u8]) -> Result<(Head<'a>, &'a [u8]), ()> {
     let ai = ib & Head::ADDITIONAL_INFORMATION_MASK;
 
     if ai == 28 || ai == 29 || ai == 30 {
-	return Err(());
+	return Err(Error::Reserved5BitValue);
     }
 
     let bytes_len = match ai {
@@ -104,19 +122,19 @@ fn decode_head<'a>(data: &'a [u8]) -> Result<(Head<'a>, &'a [u8]), ()> {
 	let head = Head::new(ib, bytes);
 	Ok((head, rest))
     } else {
-	Err(())
+	Err(Error::UnexpectedEnd)
     }
 }
 
-fn decode_bytes<'a>(data: &'a [u8], count: usize) -> Result<(&'a [u8], &'a [u8]), ()> {
+fn decode_bytes<'a>(data: &'a [u8], count: usize) -> Result<(&'a [u8], &'a [u8])> {
     if data.len() >= count {
 	Ok((&data[0..count], &data[count..]))
     } else {
-	Err(())
+	Err(Error::UnexpectedEnd)
     }
 }
 
-fn decode_event<'a>(data: &'a [u8]) -> Result<(Event<'a>, &'a [u8]), ()> {
+fn decode_event<'a>(data: &'a [u8]) -> Result<(Event<'a>, &'a [u8])> {
     if data.is_empty() {
 	return Ok((Event::End, data));
     }
@@ -132,7 +150,7 @@ fn decode_event<'a>(data: &'a [u8]) -> Result<(Event<'a>, &'a [u8]), ()> {
 	    let (content, rest) = decode_bytes(rest, len)?;
 	    Ok((Event::ByteString(content), rest))
 	} else {
-	    Err(())
+	    Err(Error::UnexpectedEnd)
 	},
 	3 => if head.additional_information() == 31 {
 	    Ok((Event::IndefiniteTextString, rest))
@@ -140,7 +158,7 @@ fn decode_event<'a>(data: &'a [u8]) -> Result<(Event<'a>, &'a [u8]), ()> {
 	    let (content, rest) = decode_bytes(rest, len)?;
 	    Ok((Event::TextString(content), rest))
 	} else {
-	    Err(())
+	    Err(Error::UnexpectedEnd)
 	},
 	4 => if head.additional_information() == 31 {
 	    Ok((Event::IndefiniteArray, rest))
@@ -158,7 +176,7 @@ fn decode_event<'a>(data: &'a [u8]) -> Result<(Event<'a>, &'a [u8]), ()> {
 	    24 => {
 		let val = head.argument().unwrap();
 		if val < 32 {
-		    Err(())
+		    Err(Error::InvalidSimpleValueEncoding)
 		} else {
 		    Ok((Event::Simple(val as u8), rest))
 		}
@@ -181,7 +199,7 @@ impl<'a> Decoder<'a> {
     }
 
     /// 次のイベントを取得する。
-    pub fn decode_event(&mut self) -> Result<Event, ()> {
+    pub fn decode_event(&mut self) -> Result<Event> {
 	let (event, rest) = decode_event(self.data)?;
 
 	self.data = rest;
@@ -255,10 +273,10 @@ mod tests {
     #[test]
     fn test_decode_head_err() {
 	let bytes = &[0x1C];
-	assert_eq!(decode_head(bytes), Err(()));
+	assert_eq!(decode_head(bytes), Err(Error::Reserved5BitValue));
 
 	let bytes = &[0x5A, 0x00, 0x00, 0x00];
-	assert_eq!(decode_head(bytes), Err(()));
+	assert_eq!(decode_head(bytes), Err(Error::UnexpectedEnd));
     }
 
     #[test]
@@ -267,7 +285,7 @@ mod tests {
 	assert_eq!(decode_bytes(bytes, 3), Ok((&bytes[0..3], &bytes[3..])));
 
 	let bytes = &[0x34, 0x1B];
-	assert_eq!(decode_bytes(bytes, 3), Err(()));
+	assert_eq!(decode_bytes(bytes, 3), Err(Error::UnexpectedEnd));
     }
 
     #[test]
@@ -332,11 +350,8 @@ mod tests {
 
     #[test]
     fn test_decode_event_simple_err() {
-	let mut dec = Decoder::new(&[0x78, 20]);
-	assert!(dec.decode_event().is_err());
-
-	let mut dec = Decoder::new(&[0x78, 0xFF]);
-	assert!(dec.decode_event().is_err());
+	let mut dec = Decoder::new(&[0xF8, 20]);
+	assert_eq!(dec.decode_event(), Err(Error::InvalidSimpleValueEncoding));
     }
 
     #[test]
